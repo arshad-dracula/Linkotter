@@ -126,6 +126,15 @@ jobs:
           $procs = @(Get-Process Linkotter -ErrorAction SilentlyContinue)
           "Linkotter processes: $($procs.Count)"
           Check ($procs.Count -ge 2) "tray process and window process are both running"
+          # Proof the window really rendered: the page loaded in WebView2, ran its script and
+          # opened its live-update stream to the tray process.
+          $inst = Get-Content "$env:APPDATA\Linkotter\instance.json" | ConvertFrom-Json
+          $u = [uri]$inst.url; $tok = $u.Fragment -replace "^#t=", ""
+          $live = Invoke-RestMethod "http://$($u.Authority)/api/state" -Headers @{ "X-Linkotter-Token" = $tok }
+          Check ($live.viewers -ge 1) "window loaded the interface and is live (viewers: $($live.viewers))"
+          Check ($live.state -eq "NeedsLogin") "installed app talks to the engine service (state: $($live.state))"
+          $titles = @(Get-Process Linkotter | Where-Object { $_.MainWindowTitle } | ForEach-Object MainWindowTitle)
+          Check ($titles -contains "Linkotter") "a window titled Linkotter is on screen"
           $run = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run").Linkotter
           Check ($run -match "Linkotter.exe. --minimized") "first run registered start-at-login ($run)"
 
@@ -135,8 +144,8 @@ jobs:
           [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
           $bmp.Save("$env:OUT\screenshot.png")
 
-          $u = Start-Process "$dir\Uninstall.exe" -ArgumentList "/S","_?=$dir" -Wait -PassThru
-          Check ($u.ExitCode -eq 0) "silent uninstall exits 0"
+          $un = Start-Process "$dir\Uninstall.exe" -ArgumentList "/S","_?=$dir" -Wait -PassThru
+          Check ($un.ExitCode -eq 0) "silent uninstall exits 0"
           Check (-not (Get-Service Tailscale -ErrorAction SilentlyContinue)) "engine service removed"
           Check (-not (Get-Process Linkotter -ErrorAction SilentlyContinue)) "app closed by uninstall"
 

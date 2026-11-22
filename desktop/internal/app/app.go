@@ -175,6 +175,7 @@ type State struct {
 	Autostart   *bool    `json:"autostart,omitempty"`
 	Health      []string `json:"health,omitempty"`
 	DownloadDir string   `json:"downloadDir"`
+	Viewers     int      `json:"viewers"` // interface windows currently open
 }
 
 func shortName(ps *ipnstate.PeerStatus) string {
@@ -235,7 +236,10 @@ func (a *App) State(ctx context.Context) State {
 	a.lastSeen = time.Now()
 	a.mu.Unlock()
 
-	s := State{Version: a.cfg.Version, Server: a.cfg.DefaultServer, Devices: []Device{}, DownloadDir: a.drop.dir, State: "NoState"}
+	a.subMu.Lock()
+	viewers := len(a.subs)
+	a.subMu.Unlock()
+	s := State{Viewers: viewers, Version: a.cfg.Version, Server: a.cfg.DefaultServer, Devices: []Device{}, DownloadDir: a.drop.dir, State: "NoState"}
 	if a.cfg.Autostart != nil {
 		on := a.cfg.Autostart.Enabled()
 		s.Autostart = &on
