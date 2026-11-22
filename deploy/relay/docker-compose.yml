@@ -1,0 +1,36 @@
+# Dubai office NAS: Dubai relay + the NAS's own always-on node.
+# Run from this directory:  docker compose --env-file ../.env up -d
+name: linkotter-relay
+
+services:
+  relay:
+    build: .
+    container_name: linkotter-relay
+    restart: unless-stopped
+    command:
+      - -hostname=${DUBAI_RELAY_HOSTNAME}
+      - -a=:443
+      - -http-port=-1                 # no port 80; certificate is issued over 443
+      - -certmode=letsencrypt
+      - -certdir=/var/lib/derper/certs
+      - -c=/var/lib/derper/derper.key
+      - -stun
+      - -stun-port=3478
+      # Only devices registered with our control server may use this relay.
+      - -verify-client-url=https://${CONTROL_HOSTNAME}/verify
+      - -verify-client-url-fail-open=false
+    ports:
+      - "${HOST_HTTPS_PORT:-443}:443/tcp"
+      - "3478:3478/udp"
+    volumes:
+      - relay-data:/var/lib/derper
+
+  node:
+    extends:
+      file: ../node.yml
+      service: node
+    profiles: ["node"]
+
+volumes:
+  relay-data:
+  node-state:

@@ -1,0 +1,83 @@
+# Linkotter control server (Headscale 0.29.x). Rendered by deploy/render.sh - edit the template, not the output.
+server_url: https://@CONTROL_HOSTNAME@
+listen_addr: 0.0.0.0:443
+metrics_listen_addr: 127.0.0.1:9090
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+trusted_proxies: []
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+derp:
+  server:
+    # India relay, embedded in the control server.
+    enabled: true
+    region_id: 900
+    region_code: "in"
+    region_name: "India office"
+    verify_clients: true
+    stun_listen_addr: "0.0.0.0:3478"
+    private_key_path: /var/lib/headscale/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+    ipv4: @INDIA_PUBLIC_IPV4@
+  # No third-party relays: only our own India and Dubai regions.
+  urls: []
+  # Dubai relay.
+  paths:
+    - /etc/headscale/derp.yaml
+  auto_update_enabled: false
+  update_frequency: 3h
+
+disable_check_updates: true
+
+node:
+  expiry: 0
+  ephemeral:
+    inactivity_timeout: 30m
+
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+
+# Certificate via Let's Encrypt on port 443 only (no port 80 needed).
+acme_url: https://acme-v02.api.letsencrypt.org/directory
+acme_email: "@ACME_EMAIL@"
+tls_letsencrypt_hostname: "@CONTROL_HOSTNAME@"
+tls_letsencrypt_cache_dir: /var/lib/headscale/cache
+tls_letsencrypt_challenge_type: TLS-ALPN-01
+
+log:
+  level: info
+  format: text
+
+policy:
+  mode: file
+  path: /etc/headscale/policy.hujson
+
+dns:
+  magic_dns: true
+  base_domain: @MESH_DOMAIN@
+  # Leave each device's normal DNS alone; only *.MESH_DOMAIN names go through Linkotter.
+  override_local_dns: false
+  nameservers:
+    global: []
+    split: {}
+  search_domains: []
+  extra_records: []
+
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"
+
+logtail:
+  enabled: false
+
+taildrop:
+  enabled: true

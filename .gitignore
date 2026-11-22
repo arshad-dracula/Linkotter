@@ -1,0 +1,4 @@
+# Site secrets and rendered config never go in git
+deploy/.env
+deploy/control/config/
+bench/results/

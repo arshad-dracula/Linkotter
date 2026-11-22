@@ -1,0 +1,31 @@
+# India office NAS: Linkotter control server + India relay + the NAS's own always-on node.
+# Run from this directory:  docker compose --env-file ../.env up -d
+name: linkotter-control
+
+services:
+  control:
+    image: docker.io/headscale/headscale:0.29.7
+    container_name: linkotter-control
+    command: serve
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/run/headscale
+    ports:
+      - "${HOST_HTTPS_PORT:-443}:443/tcp"   # control + relay (HTTPS)
+      - "3478:3478/udp"                     # STUN (NAT discovery)
+    volumes:
+      - ./config:/etc/headscale:ro
+      - control-data:/var/lib/headscale
+    healthcheck:
+      test: ["CMD", "headscale", "health"]
+
+  node:
+    extends:
+      file: ../node.yml
+      service: node
+    profiles: ["node"]   # started in a second step, once an auth key exists
+
+volumes:
+  control-data:
+  node-state:

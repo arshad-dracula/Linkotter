@@ -1,0 +1,14 @@
+# Extra relay regions served to clients. India (region 900) is the embedded one in config.yaml.
+regions:
+  901:
+    regionid: 901
+    regioncode: dxb
+    regionname: Dubai office
+    nodes:
+      - name: 901a
+        regionid: 901
+        hostname: @DUBAI_RELAY_HOSTNAME@
+        ipv4: @DUBAI_PUBLIC_IPV4@
+        stunport: 3478
+        derpport: 443
+        canport80: false

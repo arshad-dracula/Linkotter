@@ -1,0 +1,33 @@
+// Linkotter proof-of-concept access policy.
+{
+  // The always-on office NAS nodes. They join with a tagged pre-auth key.
+  "tagOwners": {
+    "tag:nas": []
+  },
+
+  "grants": [
+    // Proof of concept: every device can reach every device. Tighten before wider rollout.
+    {
+      "src": ["*"],
+      "dst": ["*"],
+      "ip":  ["*"]
+    },
+    // Any device may use the office NAS nodes as high-speed peer relays
+    // when a direct connection is not possible.
+    {
+      "src": ["*"],
+      "dst": ["tag:nas"],
+      "app": { "tailscale.com/cap/relay": [] }
+    }
+  ],
+
+  // Office LAN routes and exit-node offers from the NAS nodes are approved automatically.
+  "autoApprovers": {
+    "routes": {
+      "10.0.0.0/8":     ["tag:nas"],
+      "172.16.0.0/12":  ["tag:nas"],
+      "192.168.0.0/16": ["tag:nas"]
+    },
+    "exitNode": ["tag:nas"]
+  }
+}
