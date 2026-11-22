@@ -1,0 +1,62 @@
+name: Desktop end-to-end
+
+on:
+  push:
+    paths:
+      - "desktop/**"
+      - "deploy/templates/**"
+      - ".github/workflows/desktop-e2e.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOTOOLCHAIN: auto
+      HEADSCALE_VERSION: "0.29.7"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Control server and engine binaries
+        working-directory: desktop
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/bin/headscale" \
+            "https://github.com/juanfont/headscale/releases/download/v${HEADSCALE_VERSION}/headscale_${HEADSCALE_VERSION}_linux_amd64"
+          chmod +x "$RUNNER_TEMP/bin/headscale"
+          engine=$(go list -m -f '{{.Version}}' tailscale.com)
+          GOBIN="$RUNNER_TEMP/bin" go install "tailscale.com/cmd/tailscaled@$engine" "tailscale.com/cmd/tailscale@$engine"
+
+      - name: Browser
+        run: |
+          npm install --no-save --prefix "$RUNNER_TEMP/pw" playwright@1
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+
+      - name: Unit checks
+        working-directory: desktop
+        run: go vet ./... && go test ./...
+
+      - name: End-to-end
+        working-directory: desktop
+        env:
+          HEADSCALE: ${{ runner.temp }}/bin/headscale
+          TS_BIN: ${{ runner.temp }}/bin
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          SHOTS: ${{ runner.temp }}/shots
+        run: e2e/run.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-screenshots
+          path: ${{ runner.temp }}/shots
