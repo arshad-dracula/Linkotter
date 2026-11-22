@@ -1,0 +1,149 @@
+name: Windows app
+
+on:
+  push:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+    inputs:
+      control_url:
+        description: "Default server shown at sign-in, e.g. https://link.example.com (blank = typed by the user)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: desktop
+    env:
+      CONTROL_URL: ${{ inputs.control_url || vars.LINKOTTER_CONTROL_URL }}
+      GOTOOLCHAIN: auto
+      GOFLAGS: -trimpath
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "$env:GITHUB_WORKSPACE\dist"; New-Item -ItemType Directory -Force $out | Out-Null
+          $ver = "0.1.$env:GITHUB_RUN_NUMBER"
+          $engine = (go list -m -f '{{.Version}}' tailscale.com)
+          "VERSION=$ver" >> $env:GITHUB_ENV; "OUT=$out" >> $env:GITHUB_ENV
+
+          # Engine and its command-line tool, from the pinned open-source release.
+          $env:GOBIN = "$out\gobin"
+          go install "tailscale.com/cmd/tailscaled@$engine" "tailscale.com/cmd/tailscale@$engine"
+          if ($LASTEXITCODE) { exit 1 }
+          Move-Item "$out\gobin\tailscaled.exe" "$out\linkotter-engine.exe"
+          Move-Item "$out\gobin\tailscale.exe"  "$out\linkotter-cli.exe"
+          Remove-Item Env:GOBIN
+
+          # App: icon, manifest and version info, then the windowed executable.
+          Push-Location installer
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --out ..\cmd\linkotter\rsrc
+          if ($LASTEXITCODE) { exit 1 }
+          Pop-Location
+          $x = "-X main.version=$ver -X main.defaultServer=$env:CONTROL_URL"
+          go build -ldflags "-s -w -H=windowsgui $x" -o "$out\Linkotter.exe" ./cmd/linkotter
+          if ($LASTEXITCODE) { exit 1 }
+          # Console build of the same program, used only by the smoke test below.
+          go build -ldflags "$x" -o "$out\linkotter-test.exe" ./cmd/linkotter
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Fetch Wintun driver
+        run: |
+          $ErrorActionPreference = "Stop"
+          $zip = "$env:RUNNER_TEMP\wintun.zip"
+          Invoke-WebRequest "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile $zip
+          $want = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
+          $got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $want) { throw "wintun.zip checksum mismatch: got $got" }
+          Expand-Archive $zip "$env:RUNNER_TEMP\wintun"
+          Copy-Item "$env:RUNNER_TEMP\wintun\wintun\bin\amd64\wintun.dll" $env:OUT
+          $sig = Get-AuthenticodeSignature "$env:OUT\wintun.dll"
+          if ($sig.Status -ne "Valid") { throw "wintun.dll signature is $($sig.Status)" }
+
+      - name: Build installer
+        run: |
+          $ErrorActionPreference = "Stop"
+          Copy-Item installer\LICENSES.txt $env:OUT
+          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $nsis)) { choco install nsis -y --no-progress | Out-Null }
+          & $nsis /V2 "/DVERSION=$env:VERSION" "/DSRC=$env:OUT" installer\linkotter.nsi
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: "Smoke test: install, service, app, uninstall"
+        run: |
+          $ErrorActionPreference = "Stop"
+          function Check($ok, $msg) { if ($ok) { "ok   $msg" } else { throw "FAIL $msg" } }
+
+          $p = Start-Process "$env:OUT\LinkotterSetup.exe" -ArgumentList "/S" -Wait -PassThru
+          Check ($p.ExitCode -eq 0) "silent install exits 0 (got $($p.ExitCode))"
+          $dir = "$env:ProgramFiles\Linkotter"
+          Check (Test-Path "$dir\Linkotter.exe") "app installed in Program Files"
+          $svc = Get-Service Tailscale
+          Check ($svc.StartType -eq "Automatic") "engine service starts automatically at boot"
+          $svc.WaitForStatus("Running", "00:00:30")
+          Check ((Get-Service Tailscale).Status -eq "Running") "engine service is running"
+          Check ((Get-Content "$env:ProgramData\Tailscale\tailscaled-env.txt") -match "TS_NO_LOGS_NO_SUPPORT=true") "upstream log upload disabled"
+
+          # Backend against the real service over its named pipe.
+          $data = "$env:RUNNER_TEMP\lo-data"
+          $be = Start-Process "$env:OUT\linkotter-test.exe" -ArgumentList "--headless","--port","18999","--token","ci","--data-dir",$data -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\be.log"
+          $state = $null
+          foreach ($i in 1..30) {
+            try { $state = Invoke-RestMethod "http://127.0.0.1:18999/api/state" -Headers @{ "X-Linkotter-Token" = "ci" }; if ($state.engineOk) { break } } catch {}
+            Start-Sleep 1
+          }
+          $state | ConvertTo-Json -Depth 4
+          Check ($state.engineOk) "app backend reaches the engine service"
+          Check ($state.state -eq "NeedsLogin") "fresh install is waiting for sign-in (state: $($state.state))"
+          Check ($state.autostart -eq $false) "start-at-login reports off before the app's first real run"
+          $denied = $false; try { Invoke-RestMethod "http://127.0.0.1:18999/api/state" } catch { $denied = $_.Exception.Response.StatusCode.value__ -eq 403 }
+          Check $denied "API refuses requests without the token"
+          $page = Invoke-WebRequest "http://127.0.0.1:18999/" -UseBasicParsing
+          Check ($page.Content -match "Linkotter") "interface is served"
+          Stop-Process $be
+
+          # The real windowed app: tray process and window process must both stay up.
+          Start-Process "$dir\Linkotter.exe"
+          Start-Sleep 12
+          $procs = @(Get-Process Linkotter -ErrorAction SilentlyContinue)
+          "Linkotter processes: $($procs.Count)"
+          Check ($procs.Count -ge 2) "tray process and window process are both running"
+          $run = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run").Linkotter
+          Check ($run -match "Linkotter.exe. --minimized") "first run registered start-at-login ($run)"
+
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
+          $bmp.Save("$env:OUT\screenshot.png")
+
+          $u = Start-Process "$dir\Uninstall.exe" -ArgumentList "/S","_?=$dir" -Wait -PassThru
+          Check ($u.ExitCode -eq 0) "silent uninstall exits 0"
+          Check (-not (Get-Service Tailscale -ErrorAction SilentlyContinue)) "engine service removed"
+          Check (-not (Get-Process Linkotter -ErrorAction SilentlyContinue)) "app closed by uninstall"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linkotter-windows
+          path: |
+            dist/LinkotterSetup.exe
+            dist/screenshot.png

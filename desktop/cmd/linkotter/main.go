@@ -59,8 +59,14 @@ func main() {
 		}
 		*dataDir = filepath.Join(cfgDir, "Linkotter")
 	}
+	_, statErr := os.Stat(*dataDir)
+	firstRun := os.IsNotExist(statErr)
 	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
 		log.Fatal(err)
+	}
+	// Start at login is on by default; the Settings screen can switch it off.
+	if as := autostart(); firstRun && as != nil && !*headless {
+		as.Set(true)
 	}
 	instFile := filepath.Join(*dataDir, "instance.json")
 

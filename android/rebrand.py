@@ -92,7 +92,14 @@ for name, size, scale, colour in (
         sys.exit(f"drawable {name} no longer exists upstream")
     (res / name).write_text(mark(size, scale, colour))
 
-# 6. Build only the app; upstream's unit tests assert on upstream strings.
+# 6. Never upload engine logs to the upstream vendor, whatever the in-app toggle says.
+edit("libtailscale/backend.go",
+     "func start(dataDir, directFileRoot string, hwAttestationPref bool, appCtx AppContext) Application {\n",
+     "func start(dataDir, directFileRoot string, hwAttestationPref bool, appCtx AppContext) Application {\n"
+     '\tos.Setenv("TS_NO_LOGS_NO_SUPPORT", "true")\n')
+edit("libtailscale/tailscale.go", "Disabled: !enableUpload,", "Disabled: true,")
+
+# 7. Build only the app; upstream's unit tests assert on upstream strings.
 edit("Makefile", "./gradlew test assembleDebug", "./gradlew assembleDebug")
 
 print(f"Rebranded {root} as {APP_NAME} ({APP_ID}); default server: {control_url or 'none (entered in the app)'}")

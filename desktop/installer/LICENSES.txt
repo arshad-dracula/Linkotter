@@ -1,0 +1,11 @@
+Linkotter includes open-source software:
+
+Tailscale client and engine - Copyright (c) Tailscale Inc & contributors - BSD 3-Clause License
+  https://github.com/tailscale/tailscale/blob/main/LICENSE
+WireGuard and Wintun - Copyright (c) WireGuard LLC / Jason A. Donenfeld
+  wireguard-go: MIT License; Wintun: prebuilt binaries under the Wintun licence, https://www.wintun.net
+Rethink Sans typeface - SIL Open Font License 1.1
+Go and Go libraries - BSD-style licences; full list: https://github.com/tailscale/tailscale/blob/main/licenses/windows.md
+
+"WireGuard" is a registered trademark of Jason A. Donenfeld. "Tailscale" is a registered trademark of
+Tailscale Inc. Linkotter is not affiliated with or endorsed by either.
