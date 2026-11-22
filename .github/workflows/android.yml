@@ -102,12 +102,9 @@ jobs:
             adb shell pidof ai.propvr.linkotter
             adb shell dumpsys activity activities | grep -E "ResumedActivity" || true
             if grep -E "FATAL EXCEPTION|Fatal signal" -A12 apk/logcat.txt | grep -E "linkotter|tailscale"; then echo "app crashed"; exit 1; fi
-            # Emulators on CI sometimes put a system dialog ("not responding", permissions) in front.
-            # That is reported, not failed; a crash of our process is what fails the job.
-            if ! adb shell dumpsys activity activities | grep -E "ResumedActivity" | grep -q ai.propvr.linkotter; then
-              echo "::warning::Linkotter is running but another window is in front"
-              grep -E " ANR |not responding|AndroidRuntime|permissioncontroller" apk/logcat.txt | tail -20 || true
-            fi
+            # The script runs line by line, so every check below is a single line.
+            # On first launch Android shows its own "allow VPN connection" prompt (com.android.vpndialogs): expected, not a failure.
+            adb shell dumpsys activity activities | grep -E "ResumedActivity" | grep -qE "ai.propvr.linkotter|com.android.vpndialogs" || echo "::warning::another window is in front of Linkotter"
             adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml apk/ui.xml
             echo "--- text on screen:"; grep -o 'text="[^"]\+"' apk/ui.xml | sort -u | head -40
             if grep -o 'text="[^"]*"' apk/ui.xml | grep -q "Tailscale"; then echo "note: upstream name still visible on the first screen"; fi
