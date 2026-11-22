@@ -58,6 +58,24 @@ type App struct {
 
 	subMu sync.Mutex
 	subs  map[chan string]struct{}
+
+	xferMu sync.Mutex
+	xfers  Transfers // live progress reported by the engine
+}
+
+// Transfers is the live progress of Drop transfers, as reported by the engine.
+type Transfers struct {
+	In  []LiveFile `json:"in"`
+	Out []LiveFile `json:"out"`
+}
+
+type LiveFile struct {
+	ID   string `json:"id,omitempty"`
+	Peer string `json:"peer,omitempty"` // device ID (outgoing only; the engine does not say who is sending)
+	Name string `json:"name"`
+	Size int64  `json:"size"` // -1 if unknown
+	Done int64  `json:"done"`
+	End  string `json:"end,omitempty"` // "", ok, failed
 }
 
 type quality struct {
@@ -108,22 +126,74 @@ func (a *App) publish(ev string) {
 
 func (a *App) watchEngine(ctx context.Context) {
 	for ctx.Err() == nil {
-		w, err := a.lc.WatchIPNBus(ctx, ipn.NotifyInitialState)
+		w, err := a.lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialOutgoingFiles)
 		if err != nil {
 			a.publish("state")
 			sleep(ctx, 2*time.Second)
 			continue
 		}
 		for {
-			if _, err := w.Next(); err != nil {
+			n, err := w.Next()
+			if err != nil {
 				break
 			}
-			a.publish("state")
+			if n.IncomingFiles != nil || n.OutgoingFiles != nil {
+				a.publish(a.updateTransfers(n.IncomingFiles, n.OutgoingFiles))
+			}
+			if n.State != nil || n.Prefs != nil || n.SelfChange != nil || n.InitialStatus != nil ||
+				n.PeersChanged != nil || n.PeersRemoved != nil || n.PeerChangedPatch != nil || n.PeerState != nil ||
+				n.BrowseToURL != nil || n.ErrMessage != nil || n.Health != nil || n.LoginFinished != nil || n.FilesWaiting != nil {
+				a.publish("state")
+			}
 		}
 		w.Close()
 		a.publish("state")
 		sleep(ctx, time.Second)
 	}
+}
+
+// updateTransfers merges an engine notification into the live transfer list and returns
+// the event to send to the interface. A nil list means "unchanged".
+func (a *App) updateTransfers(in []ipn.PartialFile, out []*ipn.OutgoingFile) string {
+	a.xferMu.Lock()
+	defer a.xferMu.Unlock()
+	if in != nil {
+		a.xfers.In = a.xfers.In[:0]
+		for _, f := range in {
+			lf := LiveFile{Name: f.Name, Size: f.DeclaredSize, Done: f.Received}
+			if f.Done {
+				lf.End = "ok"
+			}
+			a.xfers.In = append(a.xfers.In, lf)
+		}
+	}
+	if out != nil {
+		a.xfers.Out = a.xfers.Out[:0]
+		for _, f := range out {
+			if f == nil {
+				continue
+			}
+			lf := LiveFile{ID: f.ID, Peer: string(f.PeerID), Name: f.Name, Size: f.DeclaredSize, Done: f.Sent}
+			if f.Finished {
+				lf.End = "failed"
+				if f.Succeeded {
+					lf.End = "ok"
+				}
+			}
+			a.xfers.Out = append(a.xfers.Out, lf)
+		}
+	}
+	b, _ := json.Marshal(struct {
+		T string `json:"t"`
+		Transfers
+	}{"xfer", a.xfers})
+	return string(b)
+}
+
+func (a *App) transfers() Transfers {
+	a.xferMu.Lock()
+	defer a.xferMu.Unlock()
+	return Transfers{In: append([]LiveFile{}, a.xfers.In...), Out: append([]LiveFile{}, a.xfers.Out...)}
 }
 
 func sleep(ctx context.Context, d time.Duration) {
@@ -154,28 +224,31 @@ type Device struct {
 	CanDrop    bool   `json:"canDrop"`
 	ExitOption bool   `json:"exitOption"`
 	Path       Path   `json:"path"`
+	Rx         int64  `json:"rx"` // bytes received from this device since the engine started
+	Tx         int64  `json:"tx"` // bytes sent to it
 }
 
 type State struct {
-	EngineOK    bool     `json:"engineOk"`
-	EngineError string   `json:"engineError,omitempty"`
-	State       string   `json:"state"`
-	AuthURL     string   `json:"authUrl,omitempty"`
-	Version     string   `json:"version"`
-	Engine      string   `json:"engineVersion,omitempty"`
-	Server      string   `json:"server"`
-	Network     string   `json:"network,omitempty"`
-	User        string   `json:"user,omitempty"`
-	Self        *Device  `json:"self,omitempty"`
-	Devices     []Device `json:"devices"`
-	ExitNode    string   `json:"exitNode"`
-	AcceptRoute bool     `json:"acceptRoutes"`
-	UseDNS      bool     `json:"useDns"`
-	Background  bool     `json:"background"`
-	Autostart   *bool    `json:"autostart,omitempty"`
-	Health      []string `json:"health,omitempty"`
-	DownloadDir string   `json:"downloadDir"`
-	Viewers     int      `json:"viewers"` // interface windows currently open
+	EngineOK    bool      `json:"engineOk"`
+	EngineError string    `json:"engineError,omitempty"`
+	State       string    `json:"state"`
+	AuthURL     string    `json:"authUrl,omitempty"`
+	Version     string    `json:"version"`
+	Engine      string    `json:"engineVersion,omitempty"`
+	Server      string    `json:"server"`
+	Network     string    `json:"network,omitempty"`
+	User        string    `json:"user,omitempty"`
+	Self        *Device   `json:"self,omitempty"`
+	Devices     []Device  `json:"devices"`
+	ExitNode    string    `json:"exitNode"`
+	AcceptRoute bool      `json:"acceptRoutes"`
+	UseDNS      bool      `json:"useDns"`
+	Background  bool      `json:"background"`
+	Autostart   *bool     `json:"autostart,omitempty"`
+	Health      []string  `json:"health,omitempty"`
+	DownloadDir string    `json:"downloadDir"`
+	Transfers   Transfers `json:"transfers"`
+	Viewers     int       `json:"viewers"` // interface windows currently open
 }
 
 func shortName(ps *ipnstate.PeerStatus) string {
@@ -196,6 +269,8 @@ func (a *App) device(ps *ipnstate.PeerStatus, self *ipnstate.PeerStatus, canDrop
 		ExitOption: ps.ExitNodeOption,
 		CanDrop:    canDrop[ps.ID],
 		Path:       Path{Kind: "idle"},
+		Rx:         ps.RxBytes,
+		Tx:         ps.TxBytes,
 	}
 	d.Mine = !d.Shared && self != nil && ps.UserID == self.UserID
 	if len(ps.TailscaleIPs) > 0 {
@@ -239,7 +314,7 @@ func (a *App) State(ctx context.Context) State {
 	a.subMu.Lock()
 	viewers := len(a.subs)
 	a.subMu.Unlock()
-	s := State{Viewers: viewers, Version: a.cfg.Version, Server: a.cfg.DefaultServer, Devices: []Device{}, DownloadDir: a.drop.dir, State: "NoState"}
+	s := State{Viewers: viewers, Transfers: a.transfers(), Version: a.cfg.Version, Server: a.cfg.DefaultServer, Devices: []Device{}, DownloadDir: a.drop.dir, State: "NoState"}
 	if a.cfg.Autostart != nil {
 		on := a.cfg.Autostart.Enabled()
 		s.Autostart = &on

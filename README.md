@@ -16,8 +16,12 @@ Tailscale engine with our own control server, relays and apps.
 Phase 1, proof of concept. What exists:
 
 - `deploy/` - control server and relays for the India and Dubai office NAS. Start with [deploy/README.md](deploy/README.md).
-- `desktop/` - the Linkotter desktop app (Windows first): sign in, device list with live path and latency,
-  Drop (send and receive files, with history), settings. Built and smoke-tested on Windows in CI.
+- `desktop/` - the Linkotter desktop app (Windows first). Its home screen is a live network web: your device
+  sits at the centre with the Linkotter otter, other devices are nodes joined by threads that show how traffic
+  really flows (direct, office relay, regional relay). Real traffic moves along the threads, files stream along
+  them when sent (drag a file onto a device to send it), and the otter reacts to what is happening: it sleeps
+  when paused, greets devices that join, concentrates while sending, cheers on delivery, catches incoming
+  files, and looks worried when something fails. Built and smoke-tested on Windows in CI.
 - `android/` - the Android app: the open-source client rebranded and built in CI.
 - `bench/` - latency and throughput measurement, for comparing against Tailscale and NetBird.
 
@@ -38,8 +42,8 @@ Sign in with the server address (`https://<CONTROL_HOSTNAME>`) and an access key
 
 - **Windows engine is not renamed yet.** It installs as a Windows service called "Tailscale" and keeps its data in
   `ProgramData\Tailscale`, so it cannot sit next to a real Tailscale install. The installer refuses to run if it finds one.
-- **Android screens still follow the upstream layout** with Linkotter name, icon and PropVR colours; the interface
-  has not been redesigned. It installs next to the Tailscale app without conflict.
+- **Android screens still follow the upstream layout** with the Linkotter name, otter icons and PropVR colours;
+  the network web and the otter character are on the desktop app only so far. It installs next to the Tailscale app without conflict.
 - **Android test builds are signed with a throwaway key.** If a newer APK refuses to install over an older one,
   uninstall the old one first. A permanent signing key has to be added as a repository secret before wider rollout.
 - **No code signing on Windows**, no auto-update, no macOS or iOS apps yet.
