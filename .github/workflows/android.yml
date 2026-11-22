@@ -64,3 +64,53 @@ jobs:
         with:
           name: linkotter-android
           path: out/*.apk
+
+  # Installs the APK on an emulator and checks it starts and stays up.
+  smoke:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linkotter-android
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb install -r apk/*.apk
+            adb shell pm list packages | grep -x "package:ai.propvr.linkotter"
+            adb shell dumpsys package ai.propvr.linkotter | grep -E "versionName|firstInstallTime" | head -2
+            adb logcat -c
+            adb shell am start -W -n ai.propvr.linkotter/com.tailscale.ipn.MainActivity
+            sleep 25
+            adb exec-out screencap -p > apk/launch.png
+            adb logcat -d > apk/logcat.txt
+            adb shell pidof ai.propvr.linkotter
+            adb shell dumpsys activity activities | grep -E "ResumedActivity|topResumedActivity" | grep ai.propvr.linkotter
+            if grep -E "FATAL EXCEPTION|Fatal signal" -A12 apk/logcat.txt | grep -E "linkotter|tailscale"; then echo "app crashed"; exit 1; fi
+            adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml apk/ui.xml
+            grep -o 'text="[^"]\+"' apk/ui.xml | sort -u | head -40
+            if grep -o 'text="[^"]*"' apk/ui.xml | grep -q "Tailscale"; then echo "note: upstream name still visible on the first screen"; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-smoke
+          path: |
+            apk/launch.png
+            apk/logcat.txt
+            apk/ui.xml
