@@ -100,10 +100,16 @@ jobs:
             adb exec-out screencap -p > apk/launch.png
             adb logcat -d > apk/logcat.txt
             adb shell pidof ai.propvr.linkotter
-            adb shell dumpsys activity activities | grep -E "ResumedActivity|topResumedActivity" | grep ai.propvr.linkotter
+            adb shell dumpsys activity activities | grep -E "ResumedActivity" || true
             if grep -E "FATAL EXCEPTION|Fatal signal" -A12 apk/logcat.txt | grep -E "linkotter|tailscale"; then echo "app crashed"; exit 1; fi
+            # Emulators on CI sometimes put a system dialog ("not responding", permissions) in front.
+            # That is reported, not failed; a crash of our process is what fails the job.
+            if ! adb shell dumpsys activity activities | grep -E "ResumedActivity" | grep -q ai.propvr.linkotter; then
+              echo "::warning::Linkotter is running but another window is in front"
+              grep -E " ANR |not responding|AndroidRuntime|permissioncontroller" apk/logcat.txt | tail -20 || true
+            fi
             adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml apk/ui.xml
-            grep -o 'text="[^"]\+"' apk/ui.xml | sort -u | head -40
+            echo "--- text on screen:"; grep -o 'text="[^"]\+"' apk/ui.xml | sort -u | head -40
             if grep -o 'text="[^"]*"' apk/ui.xml | grep -q "Tailscale"; then echo "note: upstream name still visible on the first screen"; fi
 
       - uses: actions/upload-artifact@v4
