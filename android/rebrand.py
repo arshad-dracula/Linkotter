@@ -37,7 +37,14 @@ edit("android/build.gradle.kts", "    minSdk = 26\n",
 
 # 2. Name.
 edit("android/src/main/AndroidManifest.xml", 'android:label="Tailscale"', f'android:label="{APP_NAME}"')
-edit("android/src/main/res/values/strings.xml", r"\bTailscale\b", APP_NAME, count=0, regex=True)
+strings = "android/src/main/res/values/strings.xml"
+edit(strings, "Tailscale", APP_NAME, count=0)
+# Keep the legally required attribution accurate after the rename.
+edit(strings, r'(<string name="about_view_footnotes">)[^<]*(</string>)',
+     r"\1WireGuard is a registered trademark of Jason A. Donenfeld.\\n\\n"
+     r"Linkotter is built on open-source software by Tailscale Inc. and contributors, "
+     r"used under the BSD 3-Clause licence. Tailscale is a registered trademark of Tailscale Inc.\2",
+     regex=True)
 
 # 3. Sign in against our control server unless the user typed another one.
 vm = "android/src/main/java/com/tailscale/ipn/ui/viewModel/IpnViewModel.kt"
