@@ -2,3 +2,5 @@
 deploy/.env
 deploy/control/config/
 bench/results/
+desktop/cmd/linkotter/*.syso
+dist/

@@ -17,6 +17,8 @@ services:
       TS_STATE_DIR: /var/lib/tailscale
       TS_USERSPACE: "false"
       TS_ACCEPT_DNS: "false"
+      # Never send engine logs to the upstream vendor.
+      TS_NO_LOGS_NO_SUPPORT: "true"
       TS_ROUTES: ${LAN_ROUTES:-}
       TS_EXTRA_ARGS: --login-server=https://${CONTROL_HOSTNAME}
       # Fixed UDP port so the router can forward it (direct connections).
