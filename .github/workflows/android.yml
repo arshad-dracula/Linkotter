@@ -1,0 +1,66 @@
+name: Android APK
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+    inputs:
+      control_url:
+        description: "Default server built into the app, e.g. https://link.example.com (blank = entered in the app)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CONTROL_URL: ${{ inputs.control_url || vars.LINKOTTER_CONTROL_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch upstream Android client at the pinned commit
+        run: |
+          . android/UPSTREAM
+          git init -q upstream
+          git -C upstream fetch -q --depth 1 "$repo" "$commit"
+          git -C upstream checkout -q FETCH_HEAD
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: upstream/go.mod
+          cache-dependency-path: upstream/go.sum
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Keeps the test-signing key stable between builds so a new APK installs over the old one.
+      # Best effort only: a proper release key must come from a repository secret before wider rollout.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: linkotter-test-signing-key-v1
+
+      - name: Rebrand
+        run: python3 android/rebrand.py upstream "$CONTROL_URL"
+
+      - name: Build
+        working-directory: upstream
+        run: make tailscale-debug.apk
+
+      - name: Collect
+        run: |
+          mkdir out
+          cp upstream/tailscale-debug.apk "out/linkotter-android-${GITHUB_SHA::7}.apk"
+          "$ANDROID_HOME"/build-tools/*/aapt2 dump badging out/*.apk | head -3 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linkotter-android
+          path: out/*.apk

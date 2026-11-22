@@ -1,0 +1,4 @@
+# Open-source Android client this app is built from (BSD-3-Clause).
+repo=https://github.com/tailscale/tailscale-android
+branch=release-branch/1.104
+commit=226f029a3ef5d0263dfb6cf4c79a243eec99ed86
