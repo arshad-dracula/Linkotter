@@ -18,18 +18,27 @@ trap cleanup EXIT
 
 (cd "$here/.." && go build -o "$work/linkotter" ./cmd/linkotter)
 
-HS_PORT=${HS_PORT:-18080} UI_PORT=${UI_PORT:-18999}
+HS_PORT=${HS_PORT:-18080} UI_PORT=${UI_PORT:-18999} STUN_PORT=${STUN_PORT:-13478}
 mkdir -p hs home
+# The control server and its relay need real TLS, as in production. A throwaway certificate
+# for 127.0.0.1 is trusted by the test engines only (SSL_CERT_FILE below).
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj "/CN=linkotter-e2e" \
+  -addext "subjectAltName=IP:127.0.0.1" -addext "basicConstraints=critical,CA:TRUE" \
+  -keyout hs/tls.key -out hs/tls.crt 2>/dev/null
+export SSL_CERT_FILE="$work/hs/tls.crt"
+CONTROL="https://127.0.0.1:$HS_PORT"
 cat > hs/config.yaml <<YAML
-server_url: http://127.0.0.1:$HS_PORT
+server_url: $CONTROL
 listen_addr: 127.0.0.1:$HS_PORT
+tls_cert_path: $work/hs/tls.crt
+tls_key_path: $work/hs/tls.key
 metrics_listen_addr: 127.0.0.1:0
 grpc_listen_addr: 127.0.0.1:0
 noise: {private_key_path: hs/noise.key}
 prefixes: {v4: 100.64.0.0/10, v6: "fd7a:115c:a1e0::/48", allocation: sequential}
 derp:
   server: {enabled: true, region_id: 900, region_code: in, region_name: India office, verify_clients: true,
-           stun_listen_addr: "127.0.0.1:0", private_key_path: hs/derp.key,
+           stun_listen_addr: "127.0.0.1:$STUN_PORT", private_key_path: hs/derp.key,
            automatically_add_embedded_derp_region: true, ipv4: 127.0.0.1}
   urls: []
   paths: []
@@ -43,7 +52,7 @@ unix_socket_permission: "0770"
 taildrop: {enabled: true}
 YAML
 "$HEADSCALE" serve -c hs/config.yaml > hs.log 2>&1 & pids+=($!)
-for _ in $(seq 50); do curl -fs "http://127.0.0.1:$HS_PORT/health" >/dev/null && break; sleep 0.2; done
+for _ in $(seq 50); do curl -fs "$CONTROL/health" >/dev/null && break; sleep 0.2; done
 hs() { "$HEADSCALE" -c hs/config.yaml "$@"; }
 key() { hs preauthkeys create "$@" -o json | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])'; }
 hs users create arshad >/dev/null
@@ -55,13 +64,14 @@ for n in laptop phone nas; do
 done
 sleep 2
 ts() { local n=$1; shift; "$TS_BIN/tailscale" --socket="$n.sock" "$@"; }
-ts phone up --login-server="http://127.0.0.1:$HS_PORT" --authkey="$USER_KEY" --hostname=phone --accept-dns=false
-ts nas   up --login-server="http://127.0.0.1:$HS_PORT" --authkey="$NAS_KEY"  --hostname=nas-india --accept-dns=false
+ts phone up --login-server="$CONTROL" --authkey="$USER_KEY" --hostname=phone --accept-dns=false
+ts nas   up --login-server="$CONTROL" --authkey="$NAS_KEY"  --hostname=nas-india --accept-dns=false
 
 HOME="$work/home" ./linkotter --headless --socket=laptop.sock --port="$UI_PORT" --token=e2e --data-dir="$work/data" \
-  --server="http://127.0.0.1:$HS_PORT" > app.log 2>&1 & pids+=($!)
+  --server="$CONTROL" > app.log 2>&1 & pids+=($!)
 sleep 1
 
+export CONTROL
 export UI="http://127.0.0.1:$UI_PORT/#t=e2e" USER_KEY WORK="$work" SHOTS="${SHOTS:-$work/shots}"
 export PHONE_SEND="$TS_BIN/tailscale --socket=phone.sock file cp"
 export PHONE_GET="$TS_BIN/tailscale --socket=phone.sock file get"

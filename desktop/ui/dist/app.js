@@ -151,7 +151,8 @@ function viewDrop(s) {
     ${ui.sending.length ? `<div class="list">${ui.sending.map((x) => `
       <div class="xfer ${x.error ? "fail" : ""}"><div class="dir">${icon("up")}</div><div class="grow"><div class="nm">${esc(x.name)}</div>
       <div class="hint">${x.error ? esc(x.error) : x.done ? "Sent to " + esc(x.peer) : `Sending to ${esc(x.peer)} · ${Math.round(x.pct)}%`}</div>
-      ${x.done || x.error ? "" : `<div class="bar"><i style="width:${x.pct}%"></i></div>`}</div></div>`).join("")}</div>` : ""}
+      ${x.done || x.error ? "" : `<div class="bar"><i style="width:${x.pct}%"></i></div>`}</div>
+      ${x.error ? `<button class="btn btn--sm btn--secondary" data-act="retry" data-id="${x.id}">Retry</button>` : ""}</div>`).join("")}</div>` : ""}
     <div class="row"><div class="section-title grow">History</div>
       <button class="btn btn--sm btn--secondary" data-act="reveal" data-path="${esc(s.downloadDir)}">${icon("folder")} Open Folder</button></div>
     ${ui.history.length === 0 ? `<div class="card empty"><p>Files you send and receive are listed here. Received files are saved to ${esc(s.downloadDir)}.</p></div>` : `
@@ -228,26 +229,38 @@ function listen() {
   };
 }
 
-function sendFiles(files) {
-  const s = ui.state, peer = s.devices.find((d) => d.id === ui.target);
-  if (!peer) { toast("Pick a device first"); return; }
-  for (const f of files) {
-    const x = { name: f.name, peer: peer.name, pct: 0 };
-    ui.sending.unshift(x);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/api/drop/send?to=${encodeURIComponent(peer.id)}&name=${encodeURIComponent(f.name)}&peer=${encodeURIComponent(peer.name)}`);
-    xhr.setRequestHeader("X-Linkotter-Token", token);
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable) { x.pct = (e.loaded / e.total) * 100; render(); } };
-    xhr.onload = () => {
-      if (xhr.status === 200) x.done = true;
-      else { try { x.error = JSON.parse(xhr.responseText).error; } catch (_) { x.error = "Could not send."; } }
-      render();
-    };
-    xhr.onerror = () => { x.error = "Could not send."; render(); };
-    xhr.send(f);
-  }
+// One upload attempt; transient failures (path still settling, device waking up) are
+// retried a few times before the row is marked failed.
+function upload(x) {
+  x.error = ""; x.done = false; x.pct = 0; x.tries = (x.tries || 0) + 1;
+  const fail = (msg) => {
+    if (x.tries < 3) { setTimeout(() => upload(x), 1500 * x.tries); return; }
+    x.error = msg; render();
+  };
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", `/api/drop/send?to=${encodeURIComponent(x.to)}&name=${encodeURIComponent(x.name)}&peer=${encodeURIComponent(x.peer)}`);
+  xhr.setRequestHeader("X-Linkotter-Token", token);
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) { x.pct = (e.loaded / e.total) * 100; render(); } };
+  xhr.onload = () => {
+    if (xhr.status === 200) { x.done = true; render(); return; }
+    let msg = "Could not send."; try { msg = JSON.parse(xhr.responseText).error || msg; } catch (_) {}
+    fail(msg);
+  };
+  xhr.onerror = () => fail("Could not send.");
+  xhr.send(x.file);
   render();
 }
+
+function sendFiles(files) {
+  const peer = ui.state.devices.find((d) => d.id === ui.target);
+  if (!peer) { toast("Pick a device first"); return; }
+  for (const f of files) {
+    const x = { id: ++sendSeq, file: f, name: f.name, to: peer.id, peer: peer.name, pct: 0 };
+    ui.sending.unshift(x);
+    upload(x);
+  }
+}
+let sendSeq = 0;
 
 async function act(fn, okMsg) {
   try { await fn(); if (okMsg) toast(okMsg); } catch (e) { toast(e.message); }
@@ -263,6 +276,7 @@ document.addEventListener("click", (e) => {
   else if (a === "refresh") refresh();
   else if (a === "logout") act(() => api("/api/logout", {}));
   else if (a === "open-auth") act(() => api("/api/open-auth", {}));
+  else if (a === "retry") { const x = ui.sending.find((y) => y.id === +el.dataset.id); if (x) { x.tries = 0; upload(x); } }
   else if (a === "target") { ui.target = el.dataset.id; render(); }
   else if (a === "send-to") { ui.target = el.dataset.id; ui.tab = "drop"; loadHistory(); render(); }
   else if (a === "choose") document.getElementById("files").click();

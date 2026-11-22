@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 // require() rather than import so a globally installed Playwright (NODE_PATH) is found.
 const { chromium } = createRequire(import.meta.url)("playwright");
 
-const { UI, USER_KEY, WORK, SHOTS, PHONE_SEND, PHONE_GET } = process.env;
+const { UI, CONTROL, USER_KEY, WORK, SHOTS, PHONE_SEND, PHONE_GET } = process.env;
 const step = (m) => console.log("ok  " + m);
 
 const browser = await chromium.launch();
@@ -26,14 +26,14 @@ const shot = (name, p = page) => p.screenshot({ path: path.join(SHOTS, name + ".
 
 // Sign in
 await page.getByRole("heading", { name: "Reach every device, from anywhere." }).waitFor();
-assert.match(await page.getByLabel("Server address").inputValue(), /^http:\/\/127\.0\.0\.1/);
+assert.equal(await page.getByLabel("Server address").inputValue(), CONTROL);
 await shot("1-sign-in");
 await page.getByLabel("Server address").fill("not a url");
 await page.getByRole("button", { name: "Connect" }).click();
 await page.getByRole("alert").waitFor();
 step("bad server address is rejected with a message: " + (await page.getByRole("alert").textContent()));
 errors.length = 0; // the rejected request above is logged by the browser; that one is expected
-await page.getByLabel("Server address").fill(new URL(UI).origin.replace(/:\d+$/, "") + ":" + (process.env.HS_PORT || 18080));
+await page.getByLabel("Server address").fill(CONTROL);
 await page.getByRole("button", { name: "I have an access key" }).click();
 await page.getByLabel("Access key").fill(USER_KEY);
 await page.getByRole("button", { name: "Connect" }).click();
@@ -62,7 +62,11 @@ const big = path.join(WORK, "render.bin");
 fs.writeFileSync(big, Buffer.alloc(8 * 1024 * 1024, 7));
 fs.writeFileSync(path.join(WORK, "notes.txt"), "hello from laptop\n");
 await page.locator("#files").setInputFiles([big, path.join(WORK, "notes.txt")]);
-await page.getByText("Sent to phone").first().waitFor({ timeout: 30000 });
+// exact text: the live rows say "Sent to phone"; history rows add size and time
+await page.getByText("Sent to phone", { exact: true }).nth(1).waitFor({ timeout: 60000 }).catch(async (e) => {
+  console.log("send rows:", await page.locator(".xfer").allTextContents());
+  throw e;
+});
 fs.mkdirSync(path.join(WORK, "phone-inbox"), { recursive: true });
 execSync(`${PHONE_GET} ${path.join(WORK, "phone-inbox")}`, { cwd: WORK, stdio: "pipe", encoding: "utf8" });
 assert.equal(fs.readFileSync(path.join(WORK, "phone-inbox", "notes.txt"), "utf8"), "hello from laptop\n");
