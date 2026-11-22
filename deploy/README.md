@@ -16,7 +16,7 @@ Each office needs:
 
 1. **A static public IPv4 address.**
 2. **A DNS name pointing at it**, e.g. `link.example.com` (India) and `dxb.link.example.com` (Dubai).
-3. **Three ports forwarded on the router to the NAS:**
+3. **These ports forwarded on the router to the NAS:**
 
    | Public port | To NAS port | Purpose |
    |---|---|---|
@@ -78,8 +78,8 @@ docker exec linkotter-node tailscale set --relay-server-port=41642 \
 Install the stock Tailscale client and point it at our server.
 
 - **Windows / macOS / Linux:** `tailscale up --login-server=https://<CONTROL_HOSTNAME> --authkey=<key> --accept-dns=true`
-- **Android:** open the app, tap the three-dot menu on the sign-in screen, "Use an alternate server",
-  enter `https://<CONTROL_HOSTNAME>`, then sign in with the auth key ("Use an auth key").
+- **Android:** on the sign-in screen open the menu, choose the option to use a custom/alternate
+  server, enter `https://<CONTROL_HOSTNAME>`, then sign in with the auth key. Menu wording varies by app version.
 
 A device can be on Tailscale's cloud or on Linkotter, not both at once, while it uses the stock client.
 
