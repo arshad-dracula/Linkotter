@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "desktop/**"
+      - "deploy/local-test/**"
       - ".github/workflows/windows.yml"
   workflow_dispatch:
     inputs:
@@ -36,6 +37,13 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      - name: Check the local test setup script parses
+        working-directory: deploy/local-test
+        run: |
+          $errs = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\setup.ps1", [ref]$null, [ref]$errs) | Out-Null
+          if ($errs) { $errs | ForEach-Object { $_.ToString() }; exit 1 }
 
       - name: Build
         run: |

@@ -4,3 +4,4 @@ deploy/control/config/
 bench/results/
 desktop/cmd/linkotter/*.syso
 /dist/
+deploy/local-test/config/

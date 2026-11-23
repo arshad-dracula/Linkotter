@@ -1,0 +1,14 @@
+# The control server needs at least one region in its relay map. This one only marks the local
+# network; it relays nothing, so no traffic ever leaves for an outside relay.
+regions:
+  900:
+    regionid: 900
+    regioncode: lan
+    regionname: Local network
+    nodes:
+      - name: 900a
+        regionid: 900
+        hostname: "@LAN_IP@"
+        ipv4: "@LAN_IP@"
+        stunonly: true
+        stunport: 3478

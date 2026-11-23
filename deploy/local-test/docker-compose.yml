@@ -1,0 +1,22 @@
+# Linkotter local test server: run setup.ps1 (Windows) or setup.sh (macOS/Linux), not this file directly.
+name: linkotter-local
+
+services:
+  control:
+    image: docker.io/headscale/headscale:0.29.7
+    container_name: linkotter-local
+    command: serve
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/run/headscale
+    ports:
+      - "${PORT:-8080}:8080/tcp"
+    volumes:
+      - ./config:/etc/headscale:ro
+      - control-data:/var/lib/headscale
+    healthcheck:
+      test: ["CMD", "headscale", "health"]
+
+volumes:
+  control-data:

@@ -1,4 +1,27 @@
-# Server setup (office NAS, proof of concept)
+# Server setup
+
+## Quick test on one computer (same Wi-Fi)
+
+Before the NAS is ready, any computer with Docker can run a test server for devices on the same network:
+
+```powershell
+# Windows, in an administrator PowerShell, from the repository folder
+powershell -ExecutionPolicy Bypass -File deploy\local-test\setup.ps1
+```
+```sh
+# macOS / Linux
+deploy/local-test/setup.sh
+```
+
+It starts the control server in Docker on port 8080, opens that port in Windows Firewall, installs the Linkotter
+app on the PC (when the GitHub CLI is signed in), and prints the server address (`http://<this PC's IP>:8080`) and
+an access key that works on all your devices for 7 days. Sign in with those on the PC and on your phone.
+
+Limits of this mode: plain HTTP and no relays, so devices must be on the same network as the computer (phone on
+the office Wi-Fi, not mobile data). Testing over mobile data needs the NAS setup below. Stop it with
+`docker compose -f deploy/local-test/docker-compose.yml down`.
+
+# Office NAS setup (proof of concept)
 
 Two sites, both on Docker:
 
